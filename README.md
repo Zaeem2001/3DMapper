@@ -21,5 +21,6 @@ The device uses the MSP432E401Y microcontroller interfaced with the VL531X time 
 
 5. Repeat steps 3 and 4 until the number of scans have been fullfilled and the serial port is closed (get a message in the console stating "Closing: COM"). The Python script 
    should then automatically open up the 3D render of your surroundings.
+   
    *NOTE: the 3D rendering has been taken out of the Python script so unless you have the full script, a render will not automatically open and instead the script will just end.* 
 
