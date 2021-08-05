@@ -1,0 +1,66 @@
+import serial
+import math
+import numpy as np
+import open3d as o3d
+
+# for 2DX4 Final Project
+# Muhammad Zaeem Ghauri 400261852
+
+if __name__ == "__main__":
+
+#SERIAL COMMUNICATION AND DATA PROCESSING
+    s = serial.Serial("COM5", 115200)
+
+    #read hello world data
+    c = "Start"
+    while c != "Press Button to Start...\n":    #signifies end of hello world
+        o = s.read_until()  # read until expected string (\n by default)
+        c = o.decode()      # convert byte type to str
+        print(c)
+
+    # choose parameters for scan
+    numOfScans = 5
+    displacement = 100 # in millimeters
+
+    #Make sure to change the 'degs' variable in the 'Main.C' file as well
+    degs = 10
+    angle = 512*(degs/360)
+    measurements = 512/angle # number of measurements taken per scan
+
+    # read actual distance measurements from ToF
+    count = 0
+    scanNum = 1
+    angleCo = 0
+
+    # open file for writing
+    f = open("3Dcoordinates.xyz", "w")
+    totMeasurements = numOfScans*measurements  # set to total measurements taken (# of scans x measurements per scan)
+
+    while count < totMeasurements:
+        count += 1
+
+        if count%measurements == 0:
+            angleCo = 0     # reset coefficient of angle
+
+        if count%(measurements+1) == 0:
+            scanNum += 1    # update number of scans
+
+        o = s.read_until()      # read until expected string (\n by default)
+        d = float(o.decode())   # convert byte type to float
+        print("This is scan number ", scanNum, ", measurement ", count, ", distance measured = ", d, "mm")
+
+        # convert to xyz and add to xyz file
+        x = displacement*(scanNum - 1)
+        y = d*math.sin(math.radians(90 + 5*angleCo))
+        z = d*math.cos(math.radians(90 + 5*angleCo))
+
+        f.write('%f %f %f\n' %(x,y,z))
+
+        angleCo += 1
+
+    print("Closing: " + s.name)
+    s.close()
+    f.close()
+
+#3D RENDERING NOT INCLUDED (FOR ACADEMIC DISHONESTY REASONS)
+
