@@ -1,0 +1,248 @@
+#include <stdint.h>
+#include "tm4c1294ncpdt.h"
+#include "vl53l1x_api.h"
+#include "PLL.h"
+#include "SysTick.h"
+#include "uart.h"
+#include "onboardLEDs.h"
+
+uint16_t	dev=0x52;
+
+int status=0;				//data to be communicated via UART
+
+volatile int IntCount;
+
+//device in interrupt mode (GPIO1 pin signal)
+#define isInterrupt 1 /* If isInterrupt = 1 then device working in interrupt mode, else device working in polling mode */
+
+//fn prototypes
+void I2C_Init(void);
+void UART_Init(void);
+void PortG_Init(void);
+void VL53L1X_XSHUT(void);
+void PortH_Init(void);
+void PortE_Init(void);
+void PortM_Init(void);
+
+int state = 0; //whether machine is in ON (1) or OFF (0) state 
+
+//Make sure to change the 'degs' variable in the '3DMapper.py' file as well
+int degs = 10;  //machine scans every _ degrees
+
+//machine in ON state: turns motor and collects data every x degrees, then returns motor to original position
+void ON(angle){
+	//ToF status variables
+  uint8_t ToFSensor = 1; // 0=Left, 1=Center(default), 2=Right
+  uint16_t Distance;
+  uint16_t SignalRate;
+  uint16_t AmbientRate;
+  uint16_t SpadNum; 
+  uint8_t RangeStatus;
+  uint8_t dataReady;
+	
+	uint16_t counter = 0; //used to keep track of motor steps
+	
+	VL53L1X_StartRanging(dev);
+	
+	//spins motor; 512 steps = full rotation, 72 measurements taken per rotation
+	for (int i = 0; i <512; i++)
+	{
+				GPIO_PORTH_DATA_R = 0b00001001;
+				SysTick_Wait(120000);							//2.5ms delay
+				GPIO_PORTH_DATA_R = 0b00000011;
+				SysTick_Wait(120000);
+				GPIO_PORTH_DATA_R = 0b0000110;
+				SysTick_Wait(120000);
+				GPIO_PORTH_DATA_R = 0b00001100;
+				SysTick_Wait(120000);
+				
+				counter++;
+				
+				//flashes LED if motor steps correspond to angle 
+				if (counter == angle)
+				{
+					while (dataReady == 0){
+						status = VL53L1X_CheckForDataReady(dev, &dataReady);
+						VL53L1_WaitMs(dev, 5);
+					}
+					
+					//(7) get data
+					dataReady = 0;
+					status = VL53L1X_GetDistance(dev, &Distance);				//get distance measurement
+					FlashLED2(1);																				//everytime distance measurment is taken flash LED D2
+					
+					//(8) clear interrupt
+					status = VL53L1X_ClearInterrupt(dev); /* clear interrupt has to be called to enable next interrupt*/
+					
+					//communicate distance directly to PC (no other vars like RangeStatus and such)
+					sprintf(printf_buffer,"%u\r\n", Distance);
+					UART_printf(printf_buffer);
+					
+					counter = 0; //reset counter
+				}
+			}
+	
+	//(9) stop
+  VL53L1X_StopRanging(dev);
+		
+	//rotate back to initial position quickly
+		for (int i = 0; i <512; i++)
+		{
+			GPIO_PORTH_DATA_R = 0b00001100;
+			SysTick_Wait(100000); 
+			GPIO_PORTH_DATA_R = 0b0000110;
+			SysTick_Wait(100000); 
+			GPIO_PORTH_DATA_R = 0b00000011;
+			SysTick_Wait(100000); 
+			GPIO_PORTH_DATA_R = 0b00001001;
+			SysTick_Wait(100000); 
+		}
+}
+
+int main(void) {
+	//initialize
+	PLL_Init();	
+	SysTick_Init();
+	onboardLEDs_Init();
+	I2C_Init();
+	UART_Init();
+	PortH_Init();
+	PortE_Init();
+	PortM_Init();
+	
+	int angle = 512*(degs/360.0); //angle in steps
+	
+	//ToF status variables
+	uint8_t byteData, sensorState=0, myByteArray[10] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF} , i=0;
+	
+	//verify ToF sensor is operating properly (check statuses)
+	UART_printf("Program starts\r\n");
+	sprintf(printf_buffer,"2DX4 Final Project Code\r\n");
+	UART_printf(printf_buffer);
+	
+	/* Those basic I2C read functions can be used to check your own I2C functions */
+  status = VL53L1_RdByte(dev, 0x010F, &byteData);					// This is the model ID.  Expected returned value is 0xEA
+  myByteArray[i++] = byteData;
+
+  status = VL53L1_RdByte(dev, 0x0110, &byteData);					// This is the module type.  Expected returned value is 0xCC
+  myByteArray[i++] = byteData;
+	
+	sprintf(printf_buffer,"Model_ID=0x%x , Module_Type=0x%x\r\n",myByteArray[0],myByteArray[1]);
+	UART_printf(printf_buffer);
+	
+	// Booting ToF chip
+	while(sensorState==0){
+		status = VL53L1X_BootState(dev, &sensorState); //(1)calls API function to turn on ToF chip
+		SysTick_Wait10ms(10);													 //wait for device boot
+  }
+	
+	UART_printf("ToF Chip Booted!\r\n"); 						
+	
+	status = VL53L1X_ClearInterrupt(dev); /* clear interrupt has to be called to enable next interrupt*/
+
+  /* This function must to be called to initialize the sensor with the default setting  */
+  status = VL53L1X_SensorInit(dev);								//(2)calls API function to initialize sensor in long distance mode (max 4m)
+	Status_Check("SensorInit", status);
+	
+	status = VL53L1X_StartRanging(dev);   					//(4) start taking distance measurements
+	Status_Check("StartRanging", status);
+	
+	UART_printf("Press Button to Start...\n");
+	
+	while(1){
+		
+		//detects button press: driving only one row, checking only one coloumn
+		if(((GPIO_PORTM_DATA_R&0b00000001)==0 &&(GPIO_PORTE_DATA_R&0b000000001)==0)){
+			GPIO_PORTN_DATA_R=0b00000010; //turn on LED D1 to signify ON state (start scanning)
+			ON(angle);
+		}
+		
+		//waits for next scan
+		else{
+			GPIO_PORTH_DATA_R=0b00000000;
+			GPIO_PORTN_DATA_R=0b00000000;
+		}
+	}
+}
+
+/*initialize pins and such in use*/
+
+#define I2C_MCS_ACK             0x00000008  // Data Acknowledge Enable
+#define I2C_MCS_DATACK          0x00000008  // Acknowledge Data
+#define I2C_MCS_ADRACK          0x00000004  // Acknowledge Address
+#define I2C_MCS_STOP            0x00000004  // Generate STOP
+#define I2C_MCS_START           0x00000002  // Generate START
+#define I2C_MCS_ERROR           0x00000002  // Error
+#define I2C_MCS_RUN             0x00000001  // I2C Master Enable
+#define I2C_MCS_BUSY            0x00000001  // I2C Busy
+#define I2C_MCR_MFE             0x00000010  // I2C Master Function Enable
+
+#define MAXRETRIES              5           // number of receive attempts before giving up
+void I2C_Init(void){
+  SYSCTL_RCGCI2C_R |= SYSCTL_RCGCI2C_R0;           // activate I2C0
+  SYSCTL_RCGCGPIO_R |= SYSCTL_RCGCGPIO_R1;          // activate port B
+  while((SYSCTL_PRGPIO_R&0x0002) == 0){};// ready?
+
+    GPIO_PORTB_AFSEL_R |= 0x0C;           // 3) enable alt funct on PB2,3       0b00001100
+    GPIO_PORTB_ODR_R |= 0x08;             // 4) enable open drain on PB3 only
+
+    GPIO_PORTB_DEN_R |= 0x0C;             // 5) enable digital I/O on PB2,3
+//    GPIO_PORTB_AMSEL_R &= ~0x0C;          // 7) disable analog functionality on PB2,3
+
+                                                                                // 6) configure PB2,3 as I2C
+//  GPIO_PORTB_PCTL_R = (GPIO_PORTB_PCTL_R&0xFFFF00FF)+0x00003300;
+  GPIO_PORTB_PCTL_R = (GPIO_PORTB_PCTL_R&0xFFFF00FF)+0x00002200;    //TED
+    I2C0_MCR_R = I2C_MCR_MFE;                      // 9) master function enable
+    I2C0_MTPR_R = 0b0000000000000101000000000111011;                                        // 8) configure for 100 kbps clock (added 8 clocks of glitch suppression ~50ns)
+//    I2C0_MTPR_R = 0x3B;                                        // 8) configure for 100 kbps clock
+   
+}
+
+//The VL53L1X needs to be reset using XSHUT.  We will use PG0
+void PortG_Init(void){
+	//Use PortG0
+  SYSCTL_RCGCGPIO_R |= SYSCTL_RCGCGPIO_R6;                			 // activate clock for Port N
+  while((SYSCTL_PRGPIO_R&SYSCTL_PRGPIO_R6) == 0){};              // allow time for clock to stabilize
+  GPIO_PORTG_DIR_R &= 0x00;                                      // make PG0 in (HiZ)
+  GPIO_PORTG_AFSEL_R &= ~0x01;                                     // disable alt funct on PG0
+  GPIO_PORTG_DEN_R |= 0x01;                                        // enable digital I/O on PG0
+                                                                                                    // configure PG0 as GPIO
+  //GPIO_PORTN_PCTL_R = (GPIO_PORTN_PCTL_R&0xFFFFFF00)+0x00000000;
+  GPIO_PORTG_AMSEL_R &= ~0x01;                                     // disable analog functionality on PN0
+
+  return;
+}
+
+//Button Input Pins
+void PortE_Init(void){	
+	SYSCTL_RCGCGPIO_R |= SYSCTL_RCGCGPIO_R4;		  		// activate the clock for Port E
+	while((SYSCTL_PRGPIO_R&SYSCTL_PRGPIO_R4) == 0){};	// allow time for clock to stabilize
+	GPIO_PORTE_DIR_R |= 0b00000001;                   // make PE0 output for button (row)
+	GPIO_PORTE_DEN_R= 0b00000001;
+	return;
+}
+
+void PortM_Init(void){
+	SYSCTL_RCGCGPIO_R |= SYSCTL_RCGCGPIO_R11;          //activate the clock for Port M
+	while((SYSCTL_PRGPIO_R&SYSCTL_PRGPIO_R11) == 0){}; //allow time for clock to stabilize 
+	GPIO_PORTM_DIR_R |= 0b00000000;       			 			 // make PM0 an input for button (coloumn)
+	GPIO_PORTM_DEN_R |= 0b00000001;
+	return;
+}
+
+//Stepper Motor Pins
+void PortH_Init(void){
+	SYSCTL_RCGCGPIO_R |= SYSCTL_RCGCGPIO_R7; 					// activate clock for Port H
+	while((SYSCTL_PRGPIO_R&SYSCTL_PRGPIO_R7) == 0){}; // allow time for clock to stabilize
+	GPIO_PORTH_DIR_R |= 0b00001111; 									// Make PH0:PH3 outputs for stepper motor
+	GPIO_PORTH_DEN_R |= 0b00001111; 									// Enable digital I/O on PH0-PH3
+	return;
+}
+
+//XSHUT     This pin is an active-low shutdown input; the board pulls it up to VDD to enable the sensor by default. Driving this pin low puts the sensor into hardware standby. This input is not level-shifted.
+void VL53L1X_XSHUT(void){
+  GPIO_PORTG_DIR_R |= 0x01;                       // make PG0 out
+	GPIO_PORTG_DATA_R &= 0b11111110;                // PG0 = 0
+  SysTick_Wait10ms(10);
+  GPIO_PORTG_DIR_R &= ~0x01;                      // make PG0 input (HiZ)  
+}
