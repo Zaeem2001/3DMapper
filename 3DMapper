@@ -3,9 +3,6 @@ import math
 import numpy as np
 import open3d as o3d
 
-# for 2DX4 Final Project
-# Muhammad Zaeem Ghauri 400261852
-
 if __name__ == "__main__":
 
 #SERIAL COMMUNICATION AND DATA PROCESSING
