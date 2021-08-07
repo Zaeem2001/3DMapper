@@ -23,4 +23,7 @@ The device uses the MSP432E401Y microcontroller interfaced with the VL531X time 
    should then automatically open up the 3D render of your surroundings.
    
    *NOTE: the 3D rendering has been taken out of the Python script so unless you have the full script, a render will not automatically open and instead the script will just end.* 
+   
+### Visit https://zaeem2001.github.io/projects/3dmapper.html to see my project in action!
+
 
