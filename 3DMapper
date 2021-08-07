@@ -17,12 +17,13 @@ if __name__ == "__main__":
 
     # choose parameters for scan
     numOfScans = 5
-    displacement = 100 # in millimeters
+    displacement = 200 # in millimeters
 
     #Make sure to change the 'degs' variable in the 'Main.C' file as well
-    degs = 10
-    angle = 512*(degs/360)
-    measurements = 512/angle # number of measurements taken per scan
+    degs = 1
+    angle = int(512*(degs/360))
+    measurements = 512//angle # number of measurements taken per scan
+
 
     # read actual distance measurements from ToF
     count = 0
@@ -48,8 +49,8 @@ if __name__ == "__main__":
 
         # convert to xyz and add to xyz file
         x = displacement*(scanNum - 1)
-        y = d*math.sin(math.radians(90 + 5*angleCo))
-        z = d*math.cos(math.radians(90 + 5*angleCo))
+        y = d*math.sin(math.radians(90 + degs*angleCo))
+        z = d*math.cos(math.radians(90 + degs*angleCo))
 
         f.write('%f %f %f\n' %(x,y,z))
 
@@ -59,5 +60,29 @@ if __name__ == "__main__":
     s.close()
     f.close()
 
-#3D RENDERING NOT INCLUDED (FOR ACADEMIC DISHONESTY REASONS)
+#3D RENDERING
+    # read and write point cloud from xyz file
+    pcd = o3d.io.read_point_cloud("3Dcoordinates.xyz", format = 'xyz')
+
+    # empty array of lines joining all points together
+    lines = []
+
+    # connect all the points within plane
+    count = 0 # reset count
+
+    while count < totMeasurements-1:
+        lines.append([count, count+1])  # connect pt1 to pt2, pt2 to pt3, etc
+        count += 1
+
+    # connect all the points between planes
+    count = 0   # reset count
+    do = measurements-1     # displacement offset
+
+    while count < totMeasurements-measurements:
+        lines.append([count, count+do]) # connect pt1 in plane 1 to pt2 in plane 2...
+        count += 1
+
+    # visualize 3D object
+    line_set = o3d.geometry.LineSet(points=o3d.utility.Vector3dVector(np.asarray(pcd.points)), lines=o3d.utility.Vector2iVector(lines))
+    o3d.visualization.draw_geometries([line_set])
 
