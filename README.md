@@ -24,6 +24,6 @@ The device uses the MSP432E401Y microcontroller interfaced with the VL531X time 
    
    *NOTE: the 3D rendering has been taken out of the Python script so unless you have the full script, a render will not automatically open and instead the script will just end.* 
    
-### Visit https://zaeem2001.github.io/projects/3dmapper.html to see my project in action!
+### Visit [my website](https://zaeem2001.github.io/projects/3dmapper.html) to see my project in action!
 
 
